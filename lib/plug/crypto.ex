@@ -131,7 +131,9 @@ defmodule Plug.Crypto do
   end
 
   # TODO: remove when we require OTP 25.0
-  if Code.ensure_loaded?(:crypto) and function_exported?(:crypto, :hash_equals, 2) do
+  # for ElixirDesktop iOS app 
+  #if Code.ensure_loaded?(:crypto) and function_exported?(:crypto, :hash_equals, 2) do
+  if false
     defp crypto_hash_equals(x, y) do
       :crypto.hash_equals(x, y)
     end
