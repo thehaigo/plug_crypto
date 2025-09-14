@@ -177,9 +177,9 @@ defmodule Plug.Crypto do
       when generating the encryption and signing keys. Defaults to 32
     * `:key_digest` - option passed to `Plug.Crypto.KeyGenerator`
       when generating the encryption and signing keys. Defaults to `:sha256`
-    * `:signed_at` - set the timestamp of the token in seconds.
-      Defaults to `System.os_time(:millisecond)`
-    * `:max_age` - the default maximum age of the token. Defaults to
+    * `:signed_at` - set the timestamp of the token in **seconds**.
+      If no value is provided, it will be set to the current time.
+    * `:max_age` - the default maximum age in **seconds** of the token. Defaults to
       `86400` seconds (1 day) and it may be overridden on `verify/4`.
 
   """
@@ -205,9 +205,9 @@ defmodule Plug.Crypto do
       when generating the encryption and signing keys. Defaults to 32
     * `:key_digest` - option passed to `Plug.Crypto.KeyGenerator`
       when generating the encryption and signing keys. Defaults to `:sha256`
-    * `:signed_at` - set the timestamp of the token in seconds.
-      Defaults to `System.os_time(:millisecond)`
-    * `:max_age` - the default maximum age of the token. Defaults to
+    * `:signed_at` - set the timestamp of the token in **seconds**.
+      If no value is provided, it will be set to the current time.
+    * `:max_age` - the default maximum age in **seconds** of the token. Defaults to
       `86400` seconds (1 day) and it may be overridden on `decrypt/4`.
 
   """
@@ -266,7 +266,7 @@ defmodule Plug.Crypto do
   ## Options
 
     * `:max_age` - verifies the token only if it has been generated
-      "max age" ago in seconds. Defaults to the max age signed in the
+      "max age" ago in **seconds**. Defaults to the max age signed in the
       token (86400)
     * `:key_iterations` - option passed to `Plug.Crypto.KeyGenerator`
       when generating the encryption and signing keys. Defaults to 1000
@@ -298,7 +298,7 @@ defmodule Plug.Crypto do
   ## Options
 
     * `:max_age` - verifies the token only if it has been generated
-      "max age" ago in seconds. A reasonable value is 1 day (86400
+      "max age" ago in **seconds**. A reasonable value is 1 day (86400
       seconds)
     * `:key_iterations` - option passed to `Plug.Crypto.KeyGenerator`
       when generating the encryption and signing keys. Defaults to 1000
@@ -335,10 +335,9 @@ defmodule Plug.Crypto do
         %{data: data, signed: signed} -> {data, signed, 86400}
       end
 
-    if expired?(signed, Keyword.get(opts, :max_age, max_age)) do
-      {:error, :expired}
-    else
-      {:ok, data}
+    case validate_age(signed, Keyword.get(opts, :max_age, max_age)) do
+      :ok -> {:ok, data}
+      error -> error
     end
   end
 
@@ -353,9 +352,18 @@ defmodule Plug.Crypto do
     KeyGenerator.generate(secret_key_base, salt, iterations, length, digest, cache)
   end
 
-  defp expired?(_signed, :infinity), do: false
-  defp expired?(_signed, max_age_secs) when max_age_secs <= 0, do: true
-  defp expired?(signed, max_age_secs), do: signed + trunc(max_age_secs * 1000) < now_ms()
+  defp validate_age(_signed, :infinity), do: :ok
+  defp validate_age(_signed, max_age_secs) when max_age_secs <= 0, do: {:error, :expired}
+
+  defp validate_age(signed, max_age_secs) do
+    now = now_ms()
+
+    cond do
+      signed > now -> {:error, :invalid}
+      signed + trunc(max_age_secs * 1000) < now -> {:error, :expired}
+      true -> :ok
+    end
+  end
 
   defp now_ms, do: System.os_time(:millisecond)
 end
