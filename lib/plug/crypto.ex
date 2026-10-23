@@ -123,7 +123,7 @@ defmodule Plug.Crypto do
   @doc """
   Compares the two binaries in constant-time to avoid timing attacks.
 
-  See: http://codahale.com/a-lesson-in-timing-attacks/
+  See: https://en.wikipedia.org/wiki/Timing_attack
   """
   @spec secure_compare(binary(), binary()) :: boolean()
   def secure_compare(left, right) when is_binary(left) and is_binary(right) do
@@ -164,9 +164,9 @@ defmodule Plug.Crypto do
   @doc """
   Encodes and signs data into a token you can send to clients.
 
-      Plug.Crypto.sign(conn.secret_key_base, "user-secret", {:elixir, :terms})
+      Plug.Crypto.sign(conn.secret_key_base, "user-salt", {:elixir, :terms})
 
-  A key will be derived from the secret key base and the given user secret.
+  A key will be derived from the secret key base and the given user salt.
   The key will also be cached for performance reasons on future calls.
 
   ## Options
@@ -181,6 +181,10 @@ defmodule Plug.Crypto do
       If no value is provided, it will be set to the current time.
     * `:max_age` - the default maximum age in **seconds** of the token. Defaults to
       `86400` seconds (1 day) and it may be overridden on `verify/4`.
+    * `:compressed` - compresses the encoded term. Defaults to `false`.
+    * `:local` - encodes the term in a format that is only decodable by
+      the current Erlang runtime instance. This option requires Erlang/OTP
+      26 or later and will fail on earlier versions. Defaults to `false`.
 
   """
   def sign(key_base, salt, data, opts \\ []) when is_binary(key_base) and is_binary(salt) do
@@ -192,9 +196,9 @@ defmodule Plug.Crypto do
   @doc """
   Encodes, encrypts, and signs data into a token you can send to clients.
 
-      Plug.Crypto.encrypt(conn.secret_key_base, "user-secret", {:elixir, :terms})
+      Plug.Crypto.encrypt(conn.secret_key_base, "user-salt", {:elixir, :terms})
 
-  A key will be derived from the secret key base and the given user secret.
+  A key will be derived from the secret key base and the given user salt.
   The key will also be cached for performance reasons on future calls.
 
   ## Options
@@ -209,20 +213,28 @@ defmodule Plug.Crypto do
       If no value is provided, it will be set to the current time.
     * `:max_age` - the default maximum age in **seconds** of the token. Defaults to
       `86400` seconds (1 day) and it may be overridden on `decrypt/4`.
+    * `:compressed` - compresses the encoded term. Defaults to `false`.
+    * `:local` - encodes the term in a format that is only decodable by
+      the current Erlang runtime instance. This option requires Erlang/OTP
+      26 or later and will fail on earlier versions. Defaults to `false`.
 
   """
-  def encrypt(key_base, secret, data, opts \\ [])
-      when is_binary(key_base) and is_binary(secret) do
+  def encrypt(key_base, salt, data, opts \\ [])
+      when is_binary(key_base) and is_binary(salt) do
     data
     |> encode(opts)
-    |> MessageEncryptor.encrypt(get_secret(key_base, secret, opts), "")
+    |> MessageEncryptor.encrypt(get_secret(key_base, salt, opts), "")
   end
 
   defp encode(data, opts) do
     signed_at_seconds = Keyword.get(opts, :signed_at)
     signed_at_ms = if signed_at_seconds, do: trunc(signed_at_seconds * 1000), else: now_ms()
     max_age_in_seconds = Keyword.get(opts, :max_age, 86400)
-    :erlang.term_to_binary({data, signed_at_ms, max_age_in_seconds})
+
+    term_opts =
+      for option <- [:local, :compressed], Keyword.get(opts, option, false), do: option
+
+    :erlang.term_to_binary({data, signed_at_ms, max_age_in_seconds}, term_opts)
   end
 
   @doc """
@@ -308,16 +320,16 @@ defmodule Plug.Crypto do
       when generating the encryption and signing keys. Defaults to `:sha256`
 
   """
-  def decrypt(key_base, secret, token, opts \\ [])
+  def decrypt(key_base, salt, token, opts \\ [])
 
-  def decrypt(key_base, secret, nil, opts)
-      when is_binary(key_base) and is_binary(secret) and is_list(opts) do
+  def decrypt(key_base, salt, nil, opts)
+      when is_binary(key_base) and is_binary(salt) and is_list(opts) do
     {:error, :missing}
   end
 
-  def decrypt(key_base, secret, token, opts)
-      when is_binary(key_base) and is_binary(secret) and is_list(opts) do
-    secret = get_secret(key_base, secret, opts)
+  def decrypt(key_base, salt, token, opts)
+      when is_binary(key_base) and is_binary(salt) and is_list(opts) do
+    secret = get_secret(key_base, salt, opts)
 
     case MessageEncryptor.decrypt(token, secret, "") do
       {:ok, message} -> decode(message, opts)
